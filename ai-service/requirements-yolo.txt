@@ -1,0 +1,4 @@
+# Optional YOLO detection backend (heavy: pulls torch).
+# Install on top of requirements.txt, then run with DETECTOR=yolo.
+#   .venv/bin/pip install -r requirements-yolo.txt
+ultralytics>=8.3,<9

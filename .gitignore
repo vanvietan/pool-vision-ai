@@ -1,0 +1,19 @@
+# Python
+ai-service/.venv/
+__pycache__/
+*.pyc
+ai-service/sample.jpg
+ai-service/overlay.png
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Go
+backend/poolvision-backend
+
+# YOLO weights (downloaded on demand)
+*.pt
+
+# misc
+.DS_Store
