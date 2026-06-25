@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   analyzeImage,
   type AnalyzeResult,
@@ -11,10 +11,28 @@ import {
 // Padding (fraction of image size) around the image so corners that sit
 // off-frame or occluded can still be placed in the margin.
 const PAD = 0.18;
-const CANVAS_W = 700;
+const MAX_CANVAS_W = 700;
 const CORNER_LABELS = ["top-left", "top-right", "bottom-right", "bottom-left"];
 
 type Pt = { x: number; y: number }; // normalized to the image; may be <0 or >1
+
+// Track viewport width so canvases shrink to fit phones; coords stay normalized
+// so only the pixel scale changes.
+function useViewportWidth() {
+  const [w, setW] = useState(() =>
+    typeof window === "undefined" ? 1024 : window.innerWidth,
+  );
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener("resize", on);
+    window.addEventListener("orientationchange", on);
+    return () => {
+      window.removeEventListener("resize", on);
+      window.removeEventListener("orientationchange", on);
+    };
+  }, []);
+  return w;
+}
 
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
@@ -27,6 +45,13 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
+
+  const vw = useViewportWidth();
+  const isMobile = vw < 600;
+  const pagePad = isMobile ? 12 : 24;
+  const contentW = vw - pagePad * 2;
+  // box outer width = CANVAS_W * (1 + 2*PAD); keep it within the content column.
+  const CANVAS_W = Math.min(MAX_CANVAS_W, contentW / (1 + 2 * PAD));
 
   const imgH = CANVAS_W * aspect;
   const padX = CANVAS_W * PAD;
@@ -113,7 +138,7 @@ export default function App() {
   });
 
   return (
-    <div style={styles.page}>
+    <div style={{ ...styles.page, padding: pagePad }}>
       <h1 style={styles.h1}>Pool Vision AI</h1>
       <p style={styles.sub}>
         Upload a pool-table photo, click its 4 corners (top-left → top-right →
@@ -195,7 +220,7 @@ export default function App() {
               />
             )}
           </div>
-          <div style={{ marginTop: 12, display: "flex", gap: 12 }}>
+          <div style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }}>
             <button
               onClick={() => analyze()}
               disabled={loading}
@@ -230,6 +255,7 @@ export default function App() {
               result={result}
               targetBall={targetBall}
               disabled={loading}
+              displayW={Math.min(MAX_CANVAS_W, contentW)}
               onPick={(id) => analyze(id)}
             />
             <button
@@ -324,23 +350,23 @@ function hsvToCss(hsv?: number[] | null): string {
   return `rgb(${to(r)},${to(g)},${to(b)})`;
 }
 
-const DISPLAY_W = 700;
-
 // Warped table image with the shot trajectory drawn on top; colored balls are
 // clickable to re-aim the cue ball at that ball.
 function InteractiveTable({
   result,
   targetBall,
   disabled,
+  displayW,
   onPick,
 }: {
   result: AnalyzeResult;
   targetBall: number | null;
   disabled: boolean;
+  displayW: number;
   onPick: (id: number) => void;
 }) {
-  const scale = DISPLAY_W / result.width;
-  const W = DISPLAY_W;
+  const scale = displayW / result.width;
+  const W = displayW;
   const H = result.height * scale;
   const P = (p: [number, number]): [number, number] => [p[0] * scale, p[1] * scale];
   const shot = result.shot;
