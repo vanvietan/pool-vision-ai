@@ -1,0 +1,49 @@
+# Render Blueprint — provisions all 3 services of pool-vision-ai.
+# Deploy: push to GitHub, then Render Dashboard → New → Blueprint → pick this repo.
+# After first deploy, set the two cross-service URL env vars (marked sync:false).
+services:
+  # 1. Python AI service (FastAPI + OpenCV). Default DETECTOR=opencv (no torch).
+  - type: web
+    name: poolvision-ai
+    runtime: python
+    rootDir: ai-service
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DETECTOR
+        value: opencv
+
+  # 2. Go backend proxy (Gin). Forwards /analyze to the AI service.
+  - type: web
+    name: poolvision-backend
+    runtime: go
+    rootDir: backend
+    plan: free
+    buildCommand: go build -o app .
+    startCommand: ./app
+    healthCheckPath: /health
+    envVars:
+      # Full URL (with scheme) of the AI service. Set after first deploy, e.g.
+      #   https://poolvision-ai.onrender.com
+      # (Go does AI_SERVICE_URL + "/analyze", so scheme is required.)
+      - key: AI_SERVICE_URL
+        sync: false
+
+  # 3. Vite/React frontend (static site).
+  - type: web
+    name: poolvision-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      # Public URL of the backend. Set after first deploy, e.g.
+      #   https://poolvision-backend.onrender.com
+      - key: VITE_API_BASE
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
