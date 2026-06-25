@@ -349,4 +349,13 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#fff", color: "#111", border: "1px solid #ccc", borderRadius: 6,
     padding: "8px 14px", cursor: "pointer",
   },
+  ballBtn: {
+    background: "#fff", color: "#111", border: "1px solid #ccc", borderRadius: 6,
+    padding: "6px 12px", fontWeight: 700, cursor: "pointer", minWidth: 44,
+  },
+  ballBtnActive: {
+    background: "#00c878", color: "#fff", border: "1px solid #00a866",
+    borderRadius: 6, padding: "6px 12px", fontWeight: 700, cursor: "pointer",
+    minWidth: 44,
+  },
 };
