@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 
 from .models import Ball, Pocket
-from .table import OUT_H, OUT_W
+from .table import OUT_H, OUT_W, _cloth_mask
 
 log = logging.getLogger(__name__)
 
@@ -46,10 +46,11 @@ def _mean_hsv(hsv: np.ndarray, x: int, y: int, r: int):
 
 
 def _mark_cue_ball(balls: List[Ball]) -> None:
-    """Cue ball = brightest, lowest-saturation (white) ball.
+    """Cue ball = the white ball; every other (colored) ball is a target.
 
-    Gate on real white so a yellow/striped ball is not mislabeled when no
-    cue ball is visible: require high value, low saturation.
+    The cue is always present in play, so the whitest ball (high value, low
+    saturation) is always marked as the cue — no hard white gate, which would
+    drop the cue under poor lighting and leave no shot to plan.
     """
     if not balls:
         return
@@ -58,42 +59,60 @@ def _mark_cue_ball(balls: List[Ball]) -> None:
         _, s, v = b.color_hsv or [0.0, 255.0, 0.0]
         return v - s  # high value, low saturation
 
-    cand = max(balls, key=whiteness)
-    _, s, v = cand.color_hsv or [0.0, 255.0, 0.0]
-    if v >= 150 and s <= 80:
-        cand.is_cue = True
+    max(balls, key=whiteness).is_cue = True
 
 
 class OpenCVDetector:
-    """Hough-circle ball detector with HSV-based cue-ball classification."""
+    """Color-blob ball detector.
 
-    def __init__(self, min_radius: int = 8, max_radius: int = 22):
+    Balls are the round objects sitting *on* the cloth, so instead of fragile
+    Hough circles this masks the felt, keeps only the largest cloth region as
+    the playing area, and treats the non-cloth blobs inside it as balls. This
+    ignores off-table clutter (floor, shoes, rails) and reliably finds colored
+    balls that Hough often misses.
+    """
+
+    def __init__(self, min_radius: int = 7, max_radius: int = 40):
         self.min_radius = min_radius
         self.max_radius = max_radius
 
     def detect(self, warped: np.ndarray) -> List[Ball]:
-        gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-        gray = cv2.medianBlur(gray, 5)
-        circles = cv2.HoughCircles(
-            gray,
-            cv2.HOUGH_GRADIENT,
-            dp=1.2,
-            minDist=2 * self.min_radius,
-            param1=120,
-            param2=20,
-            minRadius=self.min_radius,
-            maxRadius=self.max_radius,
-        )
+        hsv = cv2.cvtColor(warped, cv2.COLOR_BGR2HSV)
+        cloth = _cloth_mask(hsv)
+
+        # playing area = largest filled cloth contour, eroded to drop the rails
+        cnts, _ = cv2.findContours(cloth, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not cnts:
+            return []
+        area = np.zeros(cloth.shape, np.uint8)
+        cv2.drawContours(area, [max(cnts, key=cv2.contourArea)], -1, 255, -1)
+        area = cv2.erode(area, np.ones((9, 9), np.uint8))
+
+        # balls = non-cloth pixels inside the playing area
+        objs = cv2.bitwise_and(area, cv2.bitwise_not(cloth))
+        objs = cv2.morphologyEx(objs, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        objs = cv2.morphologyEx(objs, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+
+        n, _, stats, centroids = cv2.connectedComponentsWithStats(objs)
+        min_a = np.pi * self.min_radius ** 2
+        max_a = np.pi * self.max_radius ** 2
 
         balls: List[Ball] = []
-        if circles is None:
-            return balls
-
-        hsv = cv2.cvtColor(warped, cv2.COLOR_BGR2HSV)
-        for i, (x, y, r) in enumerate(np.round(circles[0]).astype(int)):
-            h, s, v = _mean_hsv(hsv, x, y, r)
+        for i in range(1, n):  # 0 is background
+            a = stats[i, cv2.CC_STAT_AREA]
+            if not (min_a <= a <= max_a):
+                continue
+            bw, bh = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
+            # round-ish: bbox near-square and well filled (rejects streaks/glare)
+            if min(bw, bh) == 0 or max(bw, bh) / min(bw, bh) > 1.8:
+                continue
+            if a / float(bw * bh) < 0.55:
+                continue
+            cx, cy = centroids[i]
+            r = float(np.sqrt(a / np.pi))
+            h, s, v = _mean_hsv(hsv, int(cx), int(cy), int(r))
             balls.append(
-                Ball(id=i, x=float(x), y=float(y), radius=float(r),
+                Ball(id=len(balls), x=float(cx), y=float(cy), radius=r,
                      color_hsv=[float(h), float(s), float(v)])
             )
 

@@ -108,6 +108,29 @@ def warp_from_corners(
     return cv2.warpPerspective(img, m, (OUT_W, OUT_H))
 
 
+def warp_point(
+    pt: Sequence[float],
+    img_wh: Tuple[int, int],
+    corners: Optional[Sequence[Sequence[float]]],
+) -> Tuple[float, float]:
+    """Map a normalized original-image point into warped-table pixel coords.
+
+    `pt` and `corners` are normalized to [0,1]. With corners the real table
+    homography is used; without them the warp was a plain resize, so the point
+    just scales to the OUT_W×OUT_H canvas.
+    """
+    px, py = float(pt[0]), float(pt[1])
+    if corners is not None and len(corners) == 4:
+        w, h = img_wh
+        src = np.array([[x * w, y * h] for x, y in corners], dtype=np.float32)
+        m = cv2.getPerspectiveTransform(src, _DST)
+        dst = cv2.perspectiveTransform(
+            np.array([[[px * w, py * h]]], dtype=np.float32), m
+        )
+        return float(dst[0, 0, 0]), float(dst[0, 0, 1])
+    return px * OUT_W, py * OUT_H
+
+
 def detect_table(
     img: np.ndarray, corners: Optional[Sequence[Sequence[float]]] = None
 ) -> Tuple[np.ndarray, bool]:

@@ -58,6 +58,7 @@ export async function analyzeImage(
   file: File,
   corners?: Corners,
   targetBall?: number,
+  targetPoint?: [number, number], // normalized [x,y] tap on the original image
 ): Promise<AnalyzeResult> {
   const form = new FormData();
   form.append("image", file);
@@ -66,6 +67,9 @@ export async function analyzeImage(
   }
   if (targetBall != null) {
     form.append("target_ball", String(targetBall));
+  }
+  if (targetPoint) {
+    form.append("target_point", JSON.stringify(targetPoint));
   }
   const res = await fetch(`${API_BASE}/analyze`, {
     method: "POST",

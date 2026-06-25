@@ -19,6 +19,7 @@ export default function App() {
   const [preview, setPreview] = useState<string | null>(null);
   const [aspect, setAspect] = useState(0.5); // h/w
   const [corners, setCorners] = useState<Pt[]>([]);
+  const [targetPt, setTargetPt] = useState<Pt | null>(null); // tapped ball-to-pot
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [targetBall, setTargetBall] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,6 +36,7 @@ export default function App() {
     setFile(f);
     setPreview(URL.createObjectURL(f));
     setCorners([]);
+    setTargetPt(null);
     setResult(null);
     setTargetBall(null);
     setError(null);
@@ -50,8 +52,12 @@ export default function App() {
   }
 
   function onCanvasClick(e: React.MouseEvent) {
-    if (corners.length >= 4) return;
     const p = toNorm(e.clientX, e.clientY);
+    // first 4 clicks place corners; after that, a click taps the ball to pot
+    if (corners.length >= 4) {
+      setTargetPt(p);
+      return;
+    }
     const next = [...corners, p];
     // after 3 clicks, auto-place the 4th via parallelogram completion
     if (next.length === 3) {
@@ -85,7 +91,10 @@ export default function App() {
         corners.length === 4
           ? (corners.map((p) => [p.x, p.y]) as Corners)
           : undefined;
-      const res = await analyzeImage(file, c, target ?? undefined);
+      // explicit ball id (post-result re-aim) wins; else send the tapped point
+      const pt: [number, number] | undefined =
+        target == null && targetPt ? [targetPt.x, targetPt.y] : undefined;
+      const res = await analyzeImage(file, c, target ?? undefined, pt);
       setResult(res);
       setTargetBall(res.shot?.target_ball ?? null);
     } catch (err) {
@@ -105,9 +114,10 @@ export default function App() {
     <div style={styles.page}>
       <h1 style={styles.h1}>Pool Vision AI</h1>
       <p style={styles.sub}>
-        Upload a pool-table photo, then click its 4 corners
-        (top-left → top-right → bottom-right → bottom-left). Click 3 and the 4th
-        is guessed — drag any corner to fix it, even off the photo edge.
+        Upload a pool-table photo, click its 4 corners (top-left → top-right →
+        bottom-right → bottom-left), then tap the ball you want to pot and hit
+        Analyze. Click 3 corners and the 4th is guessed — drag any corner to fix
+        it, even off the photo edge.
       </p>
 
       <input type="file" accept="image/*" onChange={onFile} />
@@ -117,7 +127,9 @@ export default function App() {
           <p style={styles.hint}>
             {corners.length < 4
               ? `Click ${CORNER_LABELS[corners.length]} corner (${corners.length}/4)`
-              : "Drag corners to adjust, then Analyze."}
+              : targetPt
+                ? "Ball to pot set (red ring). Drag corners to adjust, then Analyze."
+                : "Now tap the ball you want to pot, then Analyze."}
           </p>
           <div
             ref={boxRef}
@@ -128,7 +140,7 @@ export default function App() {
               height: imgH * (1 + 2 * PAD),
               background: "#eef0f3",
               borderRadius: 8,
-              cursor: corners.length < 4 ? "crosshair" : "default",
+              cursor: corners.length < 4 || !targetPt ? "crosshair" : "default",
               userSelect: "none",
               touchAction: "none",
             }}
@@ -173,6 +185,13 @@ export default function App() {
                 {i + 1}
               </div>
             ))}
+            {targetPt && corners.length === 4 && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{ ...styles.targetMark, ...handleAt(targetPt) }}
+                title="ball to pot"
+              />
+            )}
           </div>
           <div style={{ marginTop: 12, display: "flex", gap: 12 }}>
             <button
@@ -182,11 +201,18 @@ export default function App() {
             >
               {loading ? "Analyzing…" : "Analyze"}
             </button>
-            <button onClick={() => setCorners([])} style={styles.btnGhost}>
-              Reset corners
+            <button
+              onClick={() => {
+                setCorners([]);
+                setTargetPt(null);
+              }}
+              style={styles.btnGhost}
+            >
+              Reset
             </button>
             <span style={styles.hint}>
-              No corners set → server auto-detects (works best top-down).
+              Tap a ball to aim there, or Analyze with none to auto-pick the
+              easiest shot.
             </span>
           </div>
         </div>
@@ -196,12 +222,13 @@ export default function App() {
 
       {result && (
         <div style={styles.row}>
-          <div>
+          <div style={{ flex: "0 0 auto", maxWidth: "100%" }}>
             <h3>Suggested shot</h3>
-            <img
-              src={`data:image/png;base64,${result.overlay_png}`}
-              style={styles.img}
-              alt="overlay"
+            <InteractiveTable
+              result={result}
+              targetBall={targetBall}
+              disabled={loading}
+              onPick={(id) => analyze(id)}
             />
             <button
               onClick={() => {
@@ -235,7 +262,8 @@ export default function App() {
                   })}
                 </div>
                 <span style={styles.hint}>
-                  Buttons ranked easiest → hardest. Click to re-aim.
+                  Ranked easiest → hardest. Click a button or a ball on the
+                  table to re-aim.
                 </span>
               </div>
             )}
@@ -269,6 +297,119 @@ export default function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// OpenCV HSV (H 0-179, S/V 0-255) -> css rgb string, for ball fill color.
+function hsvToCss(hsv?: number[] | null): string {
+  if (!hsv) return "#888";
+  const h = (hsv[0] * 2) % 360;
+  const s = hsv[1] / 255;
+  const v = hsv[2] / 255;
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  const [r, g, b] =
+    h < 60 ? [c, x, 0] :
+    h < 120 ? [x, c, 0] :
+    h < 180 ? [0, c, x] :
+    h < 240 ? [0, x, c] :
+    h < 300 ? [x, 0, c] : [c, 0, x];
+  const to = (n: number) => Math.round((n + m) * 255);
+  return `rgb(${to(r)},${to(g)},${to(b)})`;
+}
+
+const DISPLAY_W = 700;
+
+// Warped table image with the shot trajectory drawn on top; colored balls are
+// clickable to re-aim the cue ball at that ball.
+function InteractiveTable({
+  result,
+  targetBall,
+  disabled,
+  onPick,
+}: {
+  result: AnalyzeResult;
+  targetBall: number | null;
+  disabled: boolean;
+  onPick: (id: number) => void;
+}) {
+  const scale = DISPLAY_W / result.width;
+  const W = DISPLAY_W;
+  const H = result.height * scale;
+  const P = (p: [number, number]): [number, number] => [p[0] * scale, p[1] * scale];
+  const shot = result.shot;
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: W,
+        height: H,
+        maxWidth: "100%",
+        border: "1px solid #ddd",
+        borderRadius: 8,
+        overflow: "hidden",
+      }}
+    >
+      <img
+        src={`data:image/png;base64,${result.warped_png}`}
+        style={{ position: "absolute", inset: 0, width: W, height: H }}
+        alt="table"
+      />
+      <svg style={{ position: "absolute", inset: 0 }} width={W} height={H}>
+        {/* pockets */}
+        {result.pockets.map((pk) => {
+          const [x, y] = P([pk.x, pk.y]);
+          return <circle key={pk.name} cx={x} cy={y} r={11} fill="#000" stroke="#555" />;
+        })}
+
+        {/* trajectory: cue -> ghost (aim), object -> pocket (roll) */}
+        {shot && (() => {
+          const cue = P(shot.cue);
+          const ghost = P(shot.ghost);
+          const obj = P(shot.object_center);
+          const pocket = P(shot.pocket);
+          const contact = P(shot.contact);
+          return (
+            <g>
+              <line x1={cue[0]} y1={cue[1]} x2={ghost[0]} y2={ghost[1]}
+                stroke="#00e676" strokeWidth={3} />
+              <line x1={obj[0]} y1={obj[1]} x2={pocket[0]} y2={pocket[1]}
+                stroke="#ffab00" strokeWidth={3} strokeDasharray="6 4" />
+              <circle cx={ghost[0]} cy={ghost[1]} r={5} fill="none"
+                stroke="#00e676" strokeWidth={2} />
+              <circle cx={contact[0]} cy={contact[1]} r={4} fill="#ff1744" />
+              <circle cx={pocket[0]} cy={pocket[1]} r={16} fill="none"
+                stroke="#00e676" strokeWidth={3} />
+            </g>
+          );
+        })()}
+
+        {/* balls (colored ones clickable) */}
+        {result.balls.map((b) => {
+          const [x, y] = P([b.x, b.y]);
+          const r = Math.max(6, b.radius * scale);
+          if (b.is_cue) {
+            return <circle key={b.id} cx={x} cy={y} r={r} fill="#fff" stroke="#333" strokeWidth={2} />;
+          }
+          const active = b.id === targetBall;
+          return (
+            <circle
+              key={b.id}
+              cx={x}
+              cy={y}
+              r={r}
+              fill={hsvToCss(b.color_hsv)}
+              stroke={active ? "#00e676" : "#fff"}
+              strokeWidth={active ? 4 : 2}
+              style={{ cursor: disabled ? "wait" : "pointer" }}
+              onClick={() => !disabled && onPick(b.id)}
+            />
+          );
+        })}
+      </svg>
     </div>
   );
 }
@@ -328,7 +469,7 @@ const styles: Record<string, React.CSSProperties> = {
   hint: { color: "#777", fontSize: 14, margin: "4px 0" },
   row: { display: "flex", gap: 24, marginTop: 16, flexWrap: "wrap", alignItems: "flex-start" },
   img: { maxWidth: 700, width: "100%", borderRadius: 8, border: "1px solid #ddd", display: "block" },
-  panel: { minWidth: 220, background: "#f6f7f9", borderRadius: 8, padding: 16 },
+  panel: { flex: "1 1 240px", minWidth: 220, background: "#f6f7f9", borderRadius: 8, padding: 16 },
   stat: { display: "flex", justifyContent: "space-between", padding: "4px 0" },
   statLabel: { color: "#666" },
   statValue: { fontWeight: 600 },
@@ -340,6 +481,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
     cursor: "grab", border: "2px solid #fff", boxShadow: "0 1px 4px rgba(0,0,0,.4)",
     touchAction: "none",
+  },
+  targetMark: {
+    position: "absolute", width: 26, height: 26, marginLeft: -13, marginTop: -13,
+    borderRadius: "50%", border: "3px solid #e23b3b", boxSizing: "border-box",
+    background: "rgba(226,59,59,0.15)", pointerEvents: "auto", cursor: "pointer",
   },
   btn: {
     background: "#111", color: "#fff", border: "none", borderRadius: 6,

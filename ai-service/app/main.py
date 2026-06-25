@@ -21,9 +21,9 @@ except Exception:  # pillow-heif optional; JPEG/PNG still work without it
 
 from .detect import make_detector, table_pockets
 from .geometry import analyze_shots
-from .models import AnalyzeResult
+from .models import AnalyzeResult, Ball
 from .overlay import draw_overlay, encode_png
-from .table import OUT_H, OUT_W, detect_table
+from .table import OUT_H, OUT_W, detect_table, warp_point
 
 app = FastAPI(title="Pool Vision AI - AI Service")
 app.add_middleware(
@@ -85,11 +85,33 @@ def _parse_corners(corners: Optional[str]) -> Optional[List[List[float]]]:
     )
 
 
+def _parse_point(point: Optional[str]) -> Optional[List[float]]:
+    """Parse the optional `target_point` form field: JSON [x,y] normalized."""
+    if not point:
+        return None
+    try:
+        p = json.loads(point)
+        if isinstance(p, list) and len(p) == 2:
+            return [float(p[0]), float(p[1])]
+    except (ValueError, TypeError):
+        pass
+    raise HTTPException(status_code=400, detail="target_point must be JSON [x,y]")
+
+
+def _nearest_ball(balls: List[Ball], x: float, y: float) -> Optional[int]:
+    """Id of the non-cue ball closest to (x,y) in warped coords, or None."""
+    objs = [b for b in balls if not b.is_cue]
+    if not objs:
+        return None
+    return min(objs, key=lambda b: (b.x - x) ** 2 + (b.y - y) ** 2).id
+
+
 @app.post("/analyze", response_model=AnalyzeResult)
 async def analyze(
     image: UploadFile = File(...),
     corners: Optional[str] = Form(None),
     target_ball: Optional[int] = Form(None),
+    target_point: Optional[str] = Form(None),
 ):
     raw = await image.read()
     if not raw:
@@ -101,10 +123,21 @@ async def analyze(
             detail="could not decode image (unsupported format?)",
         )
 
-    warped, table_detected = detect_table(img, _parse_corners(corners))
+    parsed_corners = _parse_corners(corners)
+    warped, table_detected = detect_table(img, parsed_corners)
     balls = detector.detect(warped)
     pockets = table_pockets()
     cue = next((b for b in balls if b.is_cue), None)
+
+    # An explicit target_ball wins; otherwise resolve a tapped point to the
+    # nearest detected ball in warped coords.
+    if target_ball is None:
+        pt = _parse_point(target_point)
+        if pt is not None:
+            h, w = img.shape[:2]
+            wx, wy = warp_point(pt, (w, h), parsed_corners)
+            target_ball = _nearest_ball(balls, wx, wy)
+
     best, candidates = analyze_shots(cue, balls, pockets, target_ball)
     overlay_png = draw_overlay(warped, balls, pockets, best)
 
