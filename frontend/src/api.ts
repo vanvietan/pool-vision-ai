@@ -22,6 +22,20 @@ export interface Spin {
   tip: string;
 }
 
+export interface Power {
+  level: number; // 0 soft .. 1 break
+  label: string; // Soft / Medium / Firm / Break
+  tip: string;
+}
+
+export interface ObjectHit {
+  hit_x: number; // -1 left .. +1 right (fraction of object-ball radius)
+  hit_y: number; // -1 top  .. +1 bottom
+  fullness: string; // Full / Three-quarter / Half / Thin
+  cut_angle: number; // degrees
+  tip: string;
+}
+
 export interface Shot {
   target_ball: number;
   target_pocket: string;
@@ -33,6 +47,8 @@ export interface Shot {
   object_center: [number, number];
   pocket: [number, number];
   spin: Spin | null;
+  power: Power | null;
+  object_hit: ObjectHit | null;
 }
 
 export interface AnalyzeResult {

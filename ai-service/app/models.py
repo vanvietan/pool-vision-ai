@@ -34,6 +34,26 @@ class Spin(BaseModel):
     tip: str   # one-line plain-language coaching note
 
 
+class Power(BaseModel):
+    """How hard to hit, derived from shot distance and cut angle."""
+    level: float  # 0 (feather) .. 1 (full break-speed)
+    label: str    # Soft / Medium / Firm / Break
+    tip: str      # one-line plain-language note
+
+
+class ObjectHit(BaseModel):
+    """Where the cue ball strikes the object ball (ghost-ball contact).
+
+    hit_x/hit_y are offsets from the object-ball center as a fraction of its
+    radius (x right, y down) pointing to the surface contact spot.
+    """
+    hit_x: float
+    hit_y: float
+    fullness: str  # Full / Three-quarter / Half / Thin
+    cut_angle: float  # degrees, 0 = dead straight
+    tip: str
+
+
 class Shot(BaseModel):
     target_ball: int
     target_pocket: str
@@ -46,6 +66,8 @@ class Shot(BaseModel):
     object_center: List[float]
     pocket: List[float]
     spin: Optional[Spin] = None  # recommended cue-ball strike point
+    power: Optional[Power] = None  # how hard to hit
+    object_hit: Optional[ObjectHit] = None  # where to strike the object ball
 
 
 class AnalyzeResult(BaseModel):

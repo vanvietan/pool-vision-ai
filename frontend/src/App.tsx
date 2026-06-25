@@ -3,6 +3,8 @@ import {
   analyzeImage,
   type AnalyzeResult,
   type Corners,
+  type ObjectHit,
+  type Power,
   type Spin,
 } from "./api";
 
@@ -290,6 +292,8 @@ export default function App() {
                   value={`${Math.round(shot.success_rate * 100)}%`}
                 />
                 {shot.spin && <CueBallDiagram spin={shot.spin} />}
+                {shot.object_hit && <ObjectBallDiagram hit={shot.object_hit} />}
+                {shot.power && <PowerMeter power={shot.power} />}
               </>
             ) : (
               <p>No valid shot found.</p>
@@ -449,6 +453,85 @@ function CueBallDiagram({ spin }: { spin: Spin }) {
           <div style={{ color: "#555", fontSize: 13, marginTop: 4 }}>{spin.tip}</div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Object-ball strike chart: where the cue ball must contact the object ball.
+// The red spot sits on the surface opposite the pocket (the ghost-ball contact).
+function ObjectBallDiagram({ hit }: { hit: ObjectHit }) {
+  const R = 60;
+  const cx = R + 8;
+  const cy = R + 8;
+  // hit_x/hit_y are a unit vector; place the dot on the rim.
+  const dx = cx + hit.hit_x * R;
+  const dy = cy + hit.hit_y * R;
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h4 style={{ margin: "0 0 6px" }}>Where to hit object ball</h4>
+      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <svg width={(R + 8) * 2} height={(R + 8) * 2}>
+          <circle cx={cx} cy={cy} r={R} fill="#fff" stroke="#333" strokeWidth={2} />
+          <line x1={cx - R} y1={cy} x2={cx + R} y2={cy} stroke="#eee" strokeWidth={1} />
+          <line x1={cx} y1={cy - R} x2={cx} y2={cy + R} stroke="#eee" strokeWidth={1} />
+          {/* arrow from center to contact = cue-ball push direction */}
+          <line x1={cx} y1={cy} x2={dx} y2={dy} stroke="#ffab00" strokeWidth={2} />
+          <circle cx={dx} cy={dy} r={9} fill="#e23b3b" stroke="#fff" strokeWidth={2} />
+        </svg>
+        <div style={{ maxWidth: 180 }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>{hit.fullness} hit</div>
+          <div style={{ color: "#555", fontSize: 13, marginTop: 4 }}>{hit.tip}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Power gauge: a 4-segment bar with a marker at the recommended level.
+function PowerMeter({ power }: { power: Power }) {
+  const segs = ["Soft", "Medium", "Firm", "Break"];
+  const active = segs.indexOf(power.label);
+  const colors = ["#4caf50", "#8bc34a", "#ff9800", "#f44336"];
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h4 style={{ margin: "0 0 6px" }}>How much power</h4>
+      <div style={{ display: "flex", gap: 4 }}>
+        {segs.map((s, i) => (
+          <div
+            key={s}
+            style={{
+              flex: 1,
+              textAlign: "center",
+              padding: "6px 0",
+              fontSize: 12,
+              fontWeight: i === active ? 700 : 500,
+              color: i === active ? "#fff" : "#888",
+              background: i === active ? colors[i] : "#eceef1",
+              borderRadius: 4,
+            }}
+          >
+            {s}
+          </div>
+        ))}
+      </div>
+      <div
+        style={{
+          marginTop: 6,
+          height: 8,
+          borderRadius: 4,
+          background: "#eceef1",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${Math.round(power.level * 100)}%`,
+            height: "100%",
+            background: colors[Math.max(0, active)],
+          }}
+        />
+      </div>
+      <div style={{ color: "#555", fontSize: 13, marginTop: 6 }}>{power.tip}</div>
     </div>
   );
 }

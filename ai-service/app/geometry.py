@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from .models import Ball, Pocket, Shot, Spin
+from .models import Ball, ObjectHit, Pocket, Power, Shot, Spin
 
 # Weights for the difficulty heuristic.
 W_ANGLE = 0.55
@@ -67,6 +67,47 @@ def _recommend_spin(d_cue: float, d_obj: float) -> Spin:
     return Spin(
         hit_x=0.0, hit_y=0.0, zone="Stun/Center",
         tip="Strike dead center for an accurate, controlled stop.",
+    )
+
+
+def _recommend_power(d_cue: float, d_obj: float, cut_angle: float) -> Power:
+    """Heavier hit for longer shots and thinner cuts (energy lost on a thin cut)."""
+    dist_frac = min(1.0, (d_cue + d_obj) / MAX_DIST)
+    angle_frac = min(1.0, cut_angle / 90.0)
+    level = max(0.0, min(1.0, 0.2 + 0.55 * dist_frac + 0.3 * angle_frac))
+    if level < 0.35:
+        label, tip = "Soft", "Easy tap — soft enough to keep cue-ball control."
+    elif level < 0.6:
+        label, tip = "Medium", "Standard pace for a clean pot with position."
+    elif level < 0.85:
+        label, tip = "Firm", "Long or thin cut — add pace to carry the energy."
+    else:
+        label, tip = "Break", "Near full power; accuracy drops, use only if needed."
+    return Power(level=round(level, 3), label=label, tip=tip)
+
+
+def _object_hit(to_pocket: np.ndarray, cut_angle: float) -> ObjectHit:
+    """Surface spot on the object ball the cue ball must strike.
+
+    Contact is on the side opposite the pocket direction, so the hit unit
+    vector is -to_pocket (already in x-right / y-down screen coords).
+    """
+    hx, hy = (-to_pocket).tolist()
+    if cut_angle < 12:
+        fullness = "Full"
+    elif cut_angle < 35:
+        fullness = "Three-quarter"
+    elif cut_angle < 55:
+        fullness = "Half"
+    else:
+        fullness = "Thin"
+    tip = (
+        f"{fullness} hit ({cut_angle:.0f}° cut) — aim the cue-ball center at the "
+        "red spot, directly opposite the pocket."
+    )
+    return ObjectHit(
+        hit_x=round(hx, 3), hit_y=round(hy, 3),
+        fullness=fullness, cut_angle=round(cut_angle, 1), tip=tip,
     )
 
 
@@ -129,6 +170,8 @@ def analyze_shots(
                     object_center=ob_p.tolist(),
                     pocket=pk_p.tolist(),
                     spin=_recommend_spin(d_cue, d_obj),
+                    power=_recommend_power(d_cue, d_obj, cut_angle),
+                    object_hit=_object_hit(to_pocket, cut_angle),
                 )
             )
 
