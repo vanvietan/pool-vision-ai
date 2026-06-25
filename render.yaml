@@ -2,7 +2,7 @@
 # Deploy: push to GitHub, then Render Dashboard → New → Blueprint → pick this repo.
 # After first deploy, set the two cross-service URL env vars (marked sync:false).
 services:
-  # 1. Python AI service (FastAPI + OpenCV). Default DETECTOR=opencv (no torch).
+  # 1. Python AI service (FastAPI + OpenCV).
   - type: web
     name: poolvision-ai
     runtime: python
@@ -11,9 +11,6 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
-    envVars:
-      - key: DETECTOR
-        value: opencv
 
   # 2. Go backend proxy (Gin). Forwards /analyze to the AI service.
   - type: web

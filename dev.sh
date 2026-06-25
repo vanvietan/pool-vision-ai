@@ -40,7 +40,9 @@ echo "[dev] frontend: setup…"
 cd "$ROOT/frontend"
 [ -d node_modules ] || npm install --silent
 echo "[dev] frontend: starting on :$FRONTEND_PORT"
-VITE_API_BASE="http://localhost:$BACKEND_PORT" npm run dev -- --port "$FRONTEND_PORT" &
+# --host binds 0.0.0.0 so phones on the LAN can reach it. No VITE_API_BASE:
+# the client derives the backend host from the page URL (see src/api.ts).
+npm run dev -- --host --port "$FRONTEND_PORT" &
 pids+=($!)
 
 echo ""

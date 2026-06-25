@@ -12,8 +12,5 @@ frontend/dist/
 # Go
 backend/poolvision-backend
 
-# YOLO weights (downloaded on demand)
-*.pt
-
 # misc
 .DS_Store

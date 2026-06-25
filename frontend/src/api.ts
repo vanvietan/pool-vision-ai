@@ -64,7 +64,11 @@ export interface AnalyzeResult {
   warped_png: string; // base64 PNG of the clean warped table
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8090";
+// Default to the host that served the page (so phones on the LAN hit the dev
+// machine's backend, not their own localhost). VITE_API_BASE overrides for prod.
+const API_BASE =
+  import.meta.env.VITE_API_BASE ??
+  `${window.location.protocol}//${window.location.hostname}:8090`;
 
 // Corners are TL, TR, BR, BL, normalized to [0,1] (values may fall outside
 // when a corner is off-frame). Omit to let the server auto-detect the table.

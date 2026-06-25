@@ -28,33 +28,8 @@ frontend/     Vite + React + TS        — upload + overlay display
 ```
 
 Detection sits behind a `Detector` interface (`ai-service/app/detect.py`).
-`make_detector()` picks the backend from `DETECTOR` env (`opencv` default,
-`yolo` opt-in) — no pipeline changes either way.
-
-### YOLO backend (opt-in, higher accuracy)
-
-```bash
-cd ai-service
-.venv/bin/pip install -r requirements-yolo.txt   # heavy: pulls torch
-DETECTOR=yolo .venv/bin/uvicorn app.main:app --port 8000
-```
-
-Defaults to COCO `sports ball` (stock `yolov8n.pt`, auto-downloaded). For the
-PRD >95% target, train/point a pool-specific model and set its ball class ids:
-
-```bash
-DETECTOR=yolo YOLO_MODEL=pool.pt YOLO_CLASSES=0,1 ... uvicorn ...
-```
-
-| Env            | Default        | Meaning                          |
-| -------------- | -------------- | -------------------------------- |
-| `DETECTOR`     | `opencv`       | `opencv` \| `yolo`               |
-| `YOLO_MODEL`   | `yolov8n.pt`   | model path/name                  |
-| `YOLO_CONF`    | `0.25`         | confidence threshold             |
-| `YOLO_CLASSES` | `32`           | comma-sep class ids to keep      |
-
-If ultralytics/torch or the model is missing, it logs a warning and falls
-back to `OpenCVDetector` so the pipeline still runs.
+`make_detector()` returns the `OpenCVDetector` (cloth masking + color blobs) —
+classic CV, no torch/model download.
 
 ## Run — one command (recommended)
 
@@ -149,9 +124,8 @@ from cut angle + travel distance. Lowest-difficulty unblocked shot wins.
 
 ## Known gaps / next
 
-- OpenCV Hough detection is brittle to lighting/cloth color. YOLO backend
-  now wired via the `Detector` seam (`DETECTOR=yolo`); next step is a
-  pool-specific trained model to hit the PRD >95% target.
+- OpenCV color-blob detection is brittle to lighting/cloth color; tune cloth
+  mask + blob filters in `detect.py`/`table.py` for real photos.
 - No persistence → add Postgres + training history (PRD Phase 1).
 - Add pytest for `geometry.py` (pure functions, high value).
 - Tune `LOWER_GREEN`/`UPPER_GREEN` in `table.py` and Hough params in

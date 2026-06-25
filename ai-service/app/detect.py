@@ -1,15 +1,12 @@
 """Ball + pocket detection.
 
 `Detector` is the seam for swapping detection backends. `OpenCVDetector`
-uses classic CV (Hough circles + color). `YoloDetector` uses an ultralytics
-YOLO model — same interface, no pipeline changes. `make_detector()` picks the
-backend from env and falls back to OpenCV when YOLO is unavailable.
+uses classic CV (cloth masking + color blobs). `make_detector()` returns it.
 """
 from __future__ import annotations
 
 import logging
-import os
-from typing import List, Optional, Protocol
+from typing import List, Protocol
 
 import cv2
 import numpy as np
@@ -120,81 +117,6 @@ class OpenCVDetector:
         return balls
 
 
-class YoloDetector:
-    """Ultralytics YOLO ball detector.
-
-    Detects balls as bounding boxes, converts each to a circle (center +
-    radius), then reuses the shared HSV cue-ball classifier. Defaults to the
-    COCO `sports ball` class (32) so a stock `yolov8n.pt` works out of the box;
-    point `YOLO_MODEL` at a pool-specific model for the PRD >95% target and set
-    `YOLO_CLASSES` to that model's ball class ids.
-    """
-
-    def __init__(
-        self,
-        model_path: str = "yolov8n.pt",
-        conf: float = 0.25,
-        classes: Optional[List[int]] = None,
-    ):
-        from ultralytics import YOLO  # lazy: heavy torch import
-
-        self.model = YOLO(model_path)
-        self.conf = conf
-        # COCO class 32 == "sports ball"; override for custom pool models.
-        self.classes = classes if classes is not None else [32]
-
-    def detect(self, warped: np.ndarray) -> List[Ball]:
-        res = self.model.predict(
-            warped, conf=self.conf, classes=self.classes, verbose=False
-        )
-        balls: List[Ball] = []
-        if not res:
-            return balls
-
-        hsv = cv2.cvtColor(warped, cv2.COLOR_BGR2HSV)
-        boxes = res[0].boxes
-        for i, xyxy in enumerate(boxes.xyxy.cpu().numpy()):
-            x1, y1, x2, y2 = xyxy
-            cx = float((x1 + x2) / 2)
-            cy = float((y1 + y2) / 2)
-            r = float(min(x2 - x1, y2 - y1) / 2)
-            h, s, v = _mean_hsv(hsv, int(cx), int(cy), int(r))
-            balls.append(
-                Ball(id=i, x=cx, y=cy, radius=r,
-                     color_hsv=[float(h), float(s), float(v)])
-            )
-
-        _mark_cue_ball(balls)
-        return balls
-
-
 def make_detector() -> Detector:
-    """Pick a detector from env; fall back to OpenCV when YOLO is unavailable.
-
-    Env:
-      DETECTOR     opencv (default) | yolo
-      YOLO_MODEL   model path/name (default yolov8n.pt)
-      YOLO_CONF    confidence threshold (default 0.25)
-      YOLO_CLASSES comma-separated class ids (default 32 = COCO sports ball)
-    """
-    backend = os.getenv("DETECTOR", "opencv").lower()
-    if backend != "yolo":
-        return OpenCVDetector()
-
-    try:
-        classes_env = os.getenv("YOLO_CLASSES")
-        classes = (
-            [int(c) for c in classes_env.split(",") if c.strip()]
-            if classes_env
-            else None
-        )
-        det = YoloDetector(
-            model_path=os.getenv("YOLO_MODEL", "yolov8n.pt"),
-            conf=float(os.getenv("YOLO_CONF", "0.25")),
-            classes=classes,
-        )
-        log.info("using YoloDetector")
-        return det
-    except Exception as e:  # missing ultralytics/torch, bad model, etc.
-        log.warning("YOLO unavailable (%s); falling back to OpenCVDetector", e)
-        return OpenCVDetector()
+    """Return the OpenCV ball detector."""
+    return OpenCVDetector()
